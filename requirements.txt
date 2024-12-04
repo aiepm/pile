@@ -1,0 +1,5 @@
+tinygrad
+albumentations
+numpy
+pytest
+PyYAML
