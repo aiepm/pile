@@ -54,8 +54,7 @@ class MQAWithDownsampling:
   def _get_pixels(self, t:Tensor) -> int:
     return t.shape[1]
 
-  def __call__(self, inputs:Tensor) -> Tensor:
-    x = inputs
+  def __call__(self, x:Tensor) -> Tensor:
     px = self._get_pixels(x)
 
     q = x

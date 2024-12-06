@@ -1,5 +1,5 @@
 from tinygrad import Tensor, nn
-from util.shape import make_divisible
+from util import make_divisible
 
 class InvertedResidual:
   def __init__(self, in_channels:int, out_channels:int, kernel_size:int,  stride:int=1, expand_ratio:float=1, activation:bool=False, squeeze_excite:bool=False, se_ratio:float=1):
