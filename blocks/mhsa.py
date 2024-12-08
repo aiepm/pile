@@ -1,4 +1,6 @@
 from tinygrad import Tensor, nn
+from mqa_with_downsampling import MQAWithDownsampling
+from mqav2 import MultiQueryAttentionLayerV2
 
 class MHSA:
   def __init__(
@@ -55,6 +57,31 @@ class MHSA:
       num_heads = self._input_dim // self._key_dim
     else:
       num_heads = self._num_heads
+
+    if self._use_multi_query:
+      if self._query_h_strides > 1 or self._query_w_strides > 1 or self._kv_strides > 1:
+        self._multi_query_attention = MQAWithDownsampling(
+            input_channels=self._input_dim,
+            num_heads=num_heads,
+            key_dim=self._key_dim,
+            value_dim=self._value_dim,
+            query_h_strides=self._query_h_strides,
+            query_w_strides=self._query_w_strides,
+            kv_strides=self._kv_strides,
+            dw_kernel_size=self._downsampling_dw_kernel_size,
+            dropout=self._dropout,
+        )
+      else:
+        self._multi_query_attention = MultiQueryAttentionLayerV2(
+            input_channels=self._input_dim,
+            num_heads=num_heads,
+            key_dim=self._key_dim,
+            value_dim=self._value_dim,
+            dropout=self._dropout,
+        )
+    else:
+      # self._multihead_attention = MHSA()
+      raise(NotImplementedError('default mhsa not implemented yet'))
 
 
   def __call__(self, x:Tensor) -> Tensor:
