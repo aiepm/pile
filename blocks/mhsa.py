@@ -1,6 +1,7 @@
 from tinygrad import Tensor, nn
 from mqa_with_downsampling import MQAWithDownsampling
 from mqav2 import MultiQueryAttentionLayerV2
+from mnv4_layer_scale import MNV4LayerScale
 
 class MHSA:
   def __init__(
@@ -83,7 +84,11 @@ class MHSA:
       # self._multihead_attention = MHSA()
       raise(NotImplementedError('default mhsa not implemented yet'))
 
+    if self._use_layer_scale:
+      self._layer_scale = MNV4LayerScale(self._layer_scale_init_value, self._input_dim)
+
+    if self._stochastic_depth_drop_rate:
+      raise(NotImplementedError('stochastic dropout not implemented yet'))
 
   def __call__(self, x:Tensor) -> Tensor:
     resx = x
-
