@@ -1,7 +1,42 @@
 from tinygrad import Tensor, nn
+from functools import reduce
 from mqa_with_downsampling import MQAWithDownsampling
 from mqav2 import MultiQueryAttentionLayerV2
 from mnv4_layer_scale import MNV4LayerScale
+from stochastic_dropout import StochasticDepth
+
+class MultiHeadAttention:
+  def __init__(self, input_channels:int, num_heads:int, key_dim:int, value_dim:int, dropout_rate:float=0.0):
+    self._channel_dim = input_channels
+    self._num_heads = num_heads
+    self._key_dim = key_dim
+    self._value_dim = value_dim
+    self._dropout_rate = dropout_rate
+
+    self._query_proj = Tensor.glorot_uniform(self._num_heads, self._key_dim, self._channel_dim)
+    self._key_proj = Tensor.glorot_uniform(self._num_heads, self._key_dim, self._channel_dim)
+    self._value_proj = Tensor.glorot_uniform(self._num_heads, self._value_dim, self._channel_dim)
+    self._output_proj = Tensor.glorot_uniform(self._channel_dim, self._num_heads, self._value_dim)
+
+  def _reshape_input(self, t:Tensor) -> Tensor:
+    num = reduce(lambda x,y:x*y, t.shape[1:-1], 1)
+    return t.view(t.shape[0], num, t.shape[-1])
+
+  def __call__(self, x:Tensor) -> Tensor:
+    rx = self._reshape_input(x)
+
+    q = Tensor.einsum('bnd,hkd->bnhk', rx, self._query_proj)
+    k = Tensor.einsum('bnd,hkd->bnhk', rx, self._key_proj)
+    v = Tensor.einsum('bnd,hvd->bnhv', rx, self._value_proj)
+    logits = Tensor.einsum('bnkh,bmhk->bnhm', q, k)
+
+    logits = logits / Tensor([self._key_dim], dtype=x.type).sqrt()
+    attention_scores = logits.softmax().dropout(self._dropout_rate)
+
+    o = Tensor.einsum('bnhm,bmhv->bnhv', attention_scores, v)
+    output = Tensor.einsum('bnhv,dhv->bnd', o, self._output_proj)
+    
+    return output
 
 class MHSA:
   def __init__(
@@ -81,14 +116,46 @@ class MHSA:
             dropout=self._dropout,
         )
     else:
-      # self._multihead_attention = MHSA()
-      raise(NotImplementedError('default mhsa not implemented yet'))
+      self._multihead_attention = MultiHeadAttention(self._input_dim, num_heads, self._key_dim, self._value_dim, self._dropout)
 
     if self._use_layer_scale:
       self._layer_scale = MNV4LayerScale(self._layer_scale_init_value, self._input_dim)
 
     if self._stochastic_depth_drop_rate:
-      raise(NotImplementedError('stochastic dropout not implemented yet'))
+      self._stochastic_depth = StochasticDepth(self._stochastic_depth_drop_rate)
 
   def __call__(self, x:Tensor) -> Tensor:
-    resx = x
+    ox = x
+    cpe_outputs = x
+    if self._use_cpe:
+      x = self._cpe_dw_conv(x)
+      x = x + ox
+      cpe_outputs = x
+
+    shortcut = cpe_outputs
+    x = self._input_norm(cpe_outputs)
+
+    if self._use_multi_query:
+      if (
+          self._query_h_strides > 1
+          or self._query_w_strides > 1
+          or self._kv_strides > 1
+      ):
+        x = self._multi_query_attention(x)
+      else:
+        x = self._multi_query_attention((x, x))
+    else:
+      x = self._multi_head_attention(x)
+
+    if self._use_layer_scale:
+      x = self._layer_scale(x)
+
+    if self._use_residual:
+      if self._stochastic_depth:
+        x = self._stochastic_depth(x)
+      x = x + shortcut
+
+    if self._output_intermediate_endpoints:
+      return x, {}
+
+    return x

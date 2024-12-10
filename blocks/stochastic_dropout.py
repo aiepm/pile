@@ -5,7 +5,7 @@ class StochasticDepth:
     self.survival_prob = survival_prob
 
   def __call__(self, x:Tensor) -> Tensor:
-    if not x.training or self.survival_prob == 1.0:
+    if not Tensor.training or self.survival_prob == 1.0:
       return x
 
     # Generate a random tensor for dropping
