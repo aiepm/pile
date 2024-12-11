@@ -7,16 +7,15 @@ from stochastic_dropout import StochasticDepth
 
 class MultiHeadAttention:
   def __init__(self, input_channels:int, num_heads:int, key_dim:int, value_dim:int, dropout_rate:float=0.0):
-    self._channel_dim = input_channels
-    self._num_heads = num_heads
     self._key_dim = key_dim
     self._value_dim = value_dim
     self._dropout_rate = dropout_rate
 
-    self._query_proj = Tensor.glorot_uniform(self._num_heads, self._key_dim, self._channel_dim)
-    self._key_proj = Tensor.glorot_uniform(self._num_heads, self._key_dim, self._channel_dim)
-    self._value_proj = Tensor.glorot_uniform(self._num_heads, self._value_dim, self._channel_dim)
-    self._output_proj = Tensor.glorot_uniform(self._channel_dim, self._num_heads, self._value_dim)
+    self._query_proj = Tensor.glorot_uniform(num_heads, self._key_dim, input_channels)
+    self._key_proj = Tensor.glorot_uniform(num_heads, self._key_dim, input_channels)
+    self._value_proj = Tensor.glorot_uniform(num_heads, self._value_dim, input_channels)
+    self._score_normalization = lambda x: x / Tensor([self._key_dim], dtype=x.type).sqrt()
+    self._output_proj = Tensor.glorot_uniform(input_channels, num_heads, self._value_dim)
 
   def _reshape_input(self, t:Tensor) -> Tensor:
     num = reduce(lambda x,y:x*y, t.shape[1:-1], 1)
@@ -28,11 +27,7 @@ class MultiHeadAttention:
     q = Tensor.einsum('bnd,hkd->bnhk', rx, self._query_proj)
     k = Tensor.einsum('bnd,hkd->bnhk', rx, self._key_proj)
     v = Tensor.einsum('bnd,hvd->bnhv', rx, self._value_proj)
-    logits = Tensor.einsum('bnkh,bmhk->bnhm', q, k)
-
-    logits = logits / Tensor([self._key_dim], dtype=x.type).sqrt()
-    attention_scores = logits.softmax().dropout(self._dropout_rate)
-
+    attention_scores = self._score_normalization(Tensor.einsum('bnkh,bmhk->bnhm', q, k)).softmax().dropout(self._dropout_rate)
     o = Tensor.einsum('bnhm,bmhv->bnhv', attention_scores, v)
     output = Tensor.einsum('bnhv,dhv->bnd', o, self._output_proj)
     
@@ -63,8 +58,6 @@ class MHSA:
       output_intermediate_endpoints=False,
       **kwargs,
   ):
-    self._input_dim = input_dim
-    self._num_heads = num_heads
     self._key_dim = key_dim
     self._value_dim = value_dim
     self._use_multi_query = use_multi_query
@@ -84,20 +77,20 @@ class MHSA:
     self._norm_epsilon = norm_epsilon
     self._output_intermediate_endpoints = output_intermediate_endpoints
 
-    self._input_norm = nn.BatchNorm2d(self._input_dim, eps=self._norm_epsilon, momentum=self._norm_momentum)
+    self._input_norm = nn.BatchNorm2d(input_dim, eps=self._norm_epsilon, momentum=self._norm_momentum)
 
     if self._use_cpe:
-      self._cpe_dw_conv = nn.Conv2d(self._input_dim, self._input_dim, kernel_size=self._cpe_dw_kernel_size, groups=self._input_dim)
+      self._cpe_dw_conv = nn.Conv2d(input_dim, input_dim, kernel_size=self._cpe_dw_kernel_size, groups=input_dim)
 
-    if self._num_heads is None:
-      num_heads = self._input_dim // self._key_dim
+    if num_heads is None:
+      num_heads = input_dim // self._key_dim
     else:
-      num_heads = self._num_heads
+      num_heads = num_heads
 
     if self._use_multi_query:
       if self._query_h_strides > 1 or self._query_w_strides > 1 or self._kv_strides > 1:
         self._multi_query_attention = MQAWithDownsampling(
-            input_channels=self._input_dim,
+            input_channels=input_dim,
             num_heads=num_heads,
             key_dim=self._key_dim,
             value_dim=self._value_dim,
@@ -109,17 +102,17 @@ class MHSA:
         )
       else:
         self._multi_query_attention = MultiQueryAttentionLayerV2(
-            input_channels=self._input_dim,
+            input_channels=input_dim,
             num_heads=num_heads,
             key_dim=self._key_dim,
             value_dim=self._value_dim,
             dropout=self._dropout,
         )
     else:
-      self._multihead_attention = MultiHeadAttention(self._input_dim, num_heads, self._key_dim, self._value_dim, self._dropout)
+      self._multihead_attention = MultiHeadAttention(input_dim, num_heads, self._key_dim, self._value_dim, self._dropout)
 
     if self._use_layer_scale:
-      self._layer_scale = MNV4LayerScale(self._layer_scale_init_value, self._input_dim)
+      self._layer_scale = MNV4LayerScale(self._layer_scale_init_value, input_dim)
 
     if self._stochastic_depth_drop_rate:
       self._stochastic_depth = StochasticDepth(self._stochastic_depth_drop_rate)

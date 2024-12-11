@@ -1,5 +1,6 @@
 tinygrad
 albumentations
 numpy
+pillow
 pytest
 PyYAML
