@@ -1,5 +1,5 @@
-tinygrad
-albumentations
+torch
+torchvision
 numpy
 pillow
 pytest

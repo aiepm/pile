@@ -1,11 +1,13 @@
-from tinygrad import Tensor
+import torch
+from torch import Tensor, nn
 
-class MNV4LayerScale:
+class MNV4LayerScale(nn.Module):
   def __init__(self, init_value:float, embedding_dim:int):
+    super().__init__()
     self._init_value = init_value
     self._embedding_dim = embedding_dim
-    self._gamma = Tensor(self._init_value * Tensor.ones(self._embedding_dim,), requires_grad=True)
+    self._gamma = nn.Parameter(self._init_value * torch.ones(self._embedding_dim,), requires_grad=True)
 
-  def __call__(self, x:Tensor) -> Tensor:
-    return x * self._gamma.cast(x.dtype)
+  def forward(self, x:Tensor) -> Tensor:
+    return x * self._gamma.to(dtype=x.dtype, device=x.device)
 

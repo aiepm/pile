@@ -1,11 +1,12 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="tinylib",
+    name="pile",
     version="0.0.1",
     packages=find_packages(exclude=["pipelines", "tests"]),
     install_requires=[
-        "tinygrad",
+        "torch",
+        "torchvision",
         "albumentations",
         "numpy",
         "PyYAML",

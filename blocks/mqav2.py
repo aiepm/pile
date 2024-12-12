@@ -1,9 +1,11 @@
+import torch
 from functools import reduce
-from tinygrad import Tensor
+from torch import Tensor, nn
 from typing import Tuple
 
-class MultiQueryAttentionLayerV2:
+class MultiQueryAttentionLayerV2(nn.Module):
   def __init__(self, input_channels:int, num_heads:int, key_dim:int, value_dim:int, dropout:float=0.0):
+    super().__init__()
     self._num_heads = num_heads
     self._key_dim = key_dim
     self._value_dim = value_dim
@@ -26,15 +28,15 @@ class MultiQueryAttentionLayerV2:
     reshaped_x = self._reshape_input(x)
     reshaped_m = self._reshape_input(m)
 
-    q = Tensor.einsum('bnd,hkd->bnhk', reshaped_x, self._query_proj)
-    k = Tensor.einsum('bmd,dk->bmk', reshaped_m, self._key_proj)
-    logits = Tensor.einsum('bnhk,bmk->bnhm', q, k)
+    q = torch.einsum('bnd,hkd->bnhk', reshaped_x, self._query_proj)
+    k = torch.einsum('bmd,dk->bmk', reshaped_m, self._key_proj)
+    logits = torch.einsum('bnhk,bmk->bnhm', q, k)
 
     logits = logits / Tensor([self._key_dim], dtype=x.dtype).sqrt()
     attention_scores = logits.softmax().dropout(self._dropout)
 
-    v = Tensor.einsum('bmd,dv->bmv', reshaped_m, self._value_proj)
-    o = Tensor.einsum('bnhm,bmv->bnhv', attention_scores, v)
-    result = Tensor.einsum('bnhv,dhv->bnd', o, self._output_proj)
+    v = torch.einsum('bmd,dv->bmv', reshaped_m, self._value_proj)
+    o = torch.einsum('bnhm,bmv->bnhv', attention_scores, v)
+    result = torch.einsum('bnhv,dhv->bnd', o, self._output_proj)
 
     return result.view(x.shape)
