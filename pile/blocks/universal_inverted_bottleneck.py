@@ -1,6 +1,6 @@
 from torch import nn, Tensor
 from typing import Optional
-from util.shape import make_divisible
+from pile.util.shape import make_divisible
 
 class UniversalInvertedBottleneck(nn.Module):
   def __init__(self,

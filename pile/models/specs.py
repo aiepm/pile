@@ -191,19 +191,20 @@ MNV4ConvLarge_BLOCK_SPECS = {
 }
 
 def mhsa(num_heads, key_dim, value_dim, px):
-    if px == 24:
-        kv_strides = 2
-    elif px == 12:
-        kv_strides = 1
-    query_h_strides = 1 
-    query_w_strides = 1 
-    use_layer_scale = True 
-    use_multi_query = True
-    use_residual = True
-    return [
-        num_heads, key_dim, value_dim, query_h_strides, query_w_strides, kv_strides, 
-        use_layer_scale, use_multi_query, use_residual
-    ]
+  kv_strides = None
+  if px == 24:
+    kv_strides = 2
+  elif px == 12:
+    kv_strides = 1
+  query_h_strides = 1 
+  query_w_strides = 1 
+  use_layer_scale = True 
+  use_multi_query = True
+  use_residual = True
+  return [
+      num_heads, key_dim, value_dim, query_h_strides, query_w_strides, kv_strides, 
+      use_layer_scale, use_multi_query, use_residual
+  ]
 
 MNV4HybridConvMedium_BLOCK_SPECS = {
     "conv0": {

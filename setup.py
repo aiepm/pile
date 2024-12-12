@@ -7,8 +7,8 @@ setup(
     install_requires=[
         "torch",
         "torchvision",
-        "albumentations",
         "numpy",
+        "pillow",
         "PyYAML",
     ],
     #entry_points={

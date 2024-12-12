@@ -1,13 +1,10 @@
 from torch import nn, Tensor
-from util import make_divisible
+from pile.util import make_divisible
 
 class InvertedResidual(nn.Module):
-  def __init__(self, in_channels:int, out_channels:int, kernel_size:int,  stride:int=1, expand_ratio:float=1, activation:bool=False, squeeze_excite:bool=False, se_ratio:float=1):
+  def __init__(self, in_channels:int, out_channels:int, kernel_size:int=3,  stride:int=1, expand_ratio:float=1, activation:bool=False, squeeze_excite:bool=False, se_ratio:float=1):
     super().__init__()
     expanded_channels = in_channels
-    
-    assert stride in [1, 2]
-    pad = [(kernel_size-1)//2]*4 if stride == 1 else [(kernel_size-1)//2-1, (kernel_size-1)//2]*2
     
     self._expand = nn.Sequential()
     if expand_ratio != 1:
@@ -18,6 +15,7 @@ class InvertedResidual(nn.Module):
           nn.ReLU6()
       )
 
+    pad = (kernel_size - 1) // 2
     self._dw = nn.Sequential(
         nn.Conv2d(expanded_channels, expanded_channels, kernel_size=kernel_size, padding=pad, stride=stride, groups=expanded_channels, bias=False),
         nn.BatchNorm2d(expanded_channels),

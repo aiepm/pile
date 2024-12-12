@@ -2,9 +2,9 @@ import torch
 from torch import Tensor, nn
 from torchvision.ops import stochastic_depth
 from functools import reduce
-from mqa_with_downsampling import MQAWithDownsampling
-from mqav2 import MultiQueryAttentionLayerV2
-from mnv4_layer_scale import MNV4LayerScale
+from .mqa_with_downsampling import MQAWithDownsampling
+from .mqav2 import MultiQueryAttentionLayerV2
+from .mnv4_layer_scale import MNV4LayerScale
 
 class MultiHeadAttention(nn.Module):
   def __init__(self, input_channels:int, num_heads:int, key_dim:int, value_dim:int, dropout_rate:float=0.0):
@@ -12,15 +12,15 @@ class MultiHeadAttention(nn.Module):
     self._key_dim = key_dim
     self._value_dim = value_dim
 
-    self._query_proj = Tensor.glorot_uniform(num_heads, self._key_dim, input_channels)
-    self._key_proj = Tensor.glorot_uniform(num_heads, self._key_dim, input_channels)
-    self._value_proj = Tensor.glorot_uniform(num_heads, self._value_dim, input_channels)
+    self._query_proj = nn.Parameter(torch.zeros(num_heads, self._key_dim, input_channels))
+    self._key_proj = nn.Parameter(torch.zeros(num_heads, self._key_dim, input_channels))
+    self._value_proj = nn.Parameter(torch.zeros(num_heads, self._value_dim, input_channels))
     score_normalization = lambda x: x / Tensor([self._key_dim], dtype=x.type).sqrt()
     self._attention_score = lambda sim: nn.Sequential(
         nn.Softmax(),
         nn.Dropout(dropout_rate)
     )(score_normalization(sim))
-    self._output_proj = Tensor.glorot_uniform(input_channels, num_heads, self._value_dim)
+    self._output_proj = nn.Parameter(torch.zeros(input_channels, num_heads, self._value_dim))
 
   def _reshape_input(self, t:Tensor) -> Tensor:
     num = reduce(lambda x,y:x*y, t.shape[1:-1], 1)
@@ -97,13 +97,13 @@ class MHSA(nn.Module):
             dropout=dropout,
         )
       else:
-        self._attention = lambda x: MultiQueryAttentionLayerV2(
+        self._attention = MultiQueryAttentionLayerV2(
             input_channels=input_dim,
             num_heads=num_heads,
             key_dim=self._key_dim,
             value_dim=self._value_dim,
             dropout=dropout,
-        )(x, x)
+        )
 
     self._layer_scale = MNV4LayerScale(self._layer_scale_init_value, input_dim) if self._use_layer_scale else nn.Identity()
     self._stochastic_depth = lambda x: stochastic_depth(x, stochastic_depth_drop_rate, "row", self.training) if stochastic_depth_drop_rate else nn.Identity()
