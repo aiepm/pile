@@ -6,7 +6,7 @@ import torchvision.transforms.v2 as transforms
 from pile.metrics import calculate_accuracy
 from pile.models.mobilenet_v4 import MobilenetV4
 from pile.schedulers import WarmupCosineScheduler
-from torch import optim
+from torch import optim, Tensor
 from torch.utils.data import DataLoader
 from pile.util import get_current_lr
 
@@ -14,24 +14,47 @@ BATCH_SIZE = 512
 NUM_EPOCHS = 2000
 WARMUP_EPOCHS = 20
 
+class TModel(nn.Module):
+  def __init__(self, backbone, dropout=0.2):
+    super().__init__()
+    self.backbone = backbone
+    self.classifier_head = nn.Sequential(
+        nn.Linear(1280, 512),
+        nn.ReLU6(),
+        nn.Dropout(dropout),
+        nn.Linear(512, 256),
+        nn.ReLU6(),
+        nn.Dropout(dropout),
+        nn.Linear(256, 10)
+    )
+
+  def forward(self, x:Tensor) -> Tensor:
+    x = self.backbone(x)[-1]
+    x = x.view(x.shape[0], -1)
+    x = self.classifier_head(x)
+    return x
+
 
 def main():
   # Check if GPU is available
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  print(device)
   
   # Data transformations
   transform = transforms.Compose([
-      transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.CIFAR10),
-      transforms.RandomHorizontalFlip(),
-      transforms.RandomVerticalFlip(),
-      transforms.RandomCrop((32, 32), padding=2),
-      transforms.ToTensor(),
-      transforms.Normalize((0.5,), (0.5,))
+    transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.CIFAR10),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomVerticalFlip(),
+    transforms.RandomCrop((32, 32), padding=2),
+    transforms.Resize((128, 128), transforms.InterpolationMode.LANCZOS),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5,), (0.5,))
   ])
   
   test_transform = transforms.Compose([
-      transforms.ToTensor(),
-      transforms.Normalize((0.5,), (0.5,))
+    transforms.Resize((128, 128), transforms.InterpolationMode.LANCZOS),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5,), (0.5,))
   ])
 
   train_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
@@ -39,15 +62,9 @@ def main():
   test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=test_transform)
   test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
 
-  model = MobilenetV4('MobileNetV4HybridLarge')
+  model = TModel(MobilenetV4('MobileNetV4HybridLarge'), 0.2)
   model = model.to(device)
-  model = torch.compile(model, mode='reduce-overhead')
-
-  x = torch.rand(1, 3, 224, 224).to(device)
-
-  model(x)
-
-  return
+  model = torch.compile(model, mode='max-autotune')
 
   criterion = nn.CrossEntropyLoss()
   optimizer = optim.SGD(model.parameters(), lr=0.1, nesterov=True, momentum=0.9, weight_decay=1e-4)

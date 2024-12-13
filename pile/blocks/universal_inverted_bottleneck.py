@@ -16,8 +16,9 @@ class UniversalInvertedBottleneck(nn.Module):
     self._start_dw = nn.Sequential()
     if start_dw_kernel_size:
       stride_ = stride if not middle_dw_downsample else 1
+      pad = (start_dw_kernel_size - 1) // 2
       self._start_dw = nn.Sequential(
-          nn.Conv2d(in_channels, in_channels, kernel_size=start_dw_kernel_size, stride=stride_, groups=in_channels, bias=False),
+          nn.Conv2d(in_channels, in_channels, kernel_size=start_dw_kernel_size, padding=pad, stride=stride_, groups=in_channels, bias=False),
           nn.BatchNorm2d(in_channels)
       )
     
@@ -31,8 +32,9 @@ class UniversalInvertedBottleneck(nn.Module):
     self._middle_dw = nn.Sequential()
     if middle_dw_kernel_size:
       stride_ = stride if middle_dw_downsample else 1
+      pad = (middle_dw_kernel_size - 1) // 2
       self._middle_dw = nn.Sequential(
-          nn.Conv2d(expand_channels, expand_channels, kernel_size=middle_dw_kernel_size, stride=stride_, groups=expand_channels, bias=False),
+          nn.Conv2d(expand_channels, expand_channels, kernel_size=middle_dw_kernel_size, padding=pad, stride=stride_, groups=expand_channels, bias=False),
           nn.BatchNorm2d(expand_channels),
           nn.ReLU6()
       )

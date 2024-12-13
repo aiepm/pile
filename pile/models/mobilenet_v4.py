@@ -4,6 +4,16 @@ from pile.blocks.universal_inverted_bottleneck import UniversalInvertedBottlenec
 from pile.blocks.inverted_residual import InvertedResidual
 from .specs import MODEL_SPECS
 
+def convbn(in_channels:int, out_channels:int, kernel_size:int=3, stride:int=1, groups:int=1, bias:bool=False, norm:bool=True, act:bool=True):
+  conv = nn.Sequential()
+  padding = (kernel_size - 1) // 2
+  conv.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=bias, groups=groups))
+  if norm:
+    conv.add_module('BatchNorm2d', nn.BatchNorm2d(out_channels))
+  if act:
+    conv.add_module('Activation', nn.ReLU6())
+  return conv
+
 def build_blocks(layer_spec):
   if not layer_spec.get('block_name'):
     return []
@@ -13,11 +23,7 @@ def build_blocks(layer_spec):
     schema_ = ['in_channels', 'out_channels', 'kernel_size', 'stride']
     for i in range(layer_spec['num_blocks']):
       args = dict(zip(schema_, layer_spec['block_specs'][i]))
-      block = nn.Sequential(
-        nn.Conv2d(**args),
-        nn.BatchNorm2d(args['out_channels']),
-        nn.ReLU6(),
-      )
+      block = convbn(**args)
       layers.add_module(f'convbn_{i}', block)
   elif block_names == "uib":
     schema_ =  ['in_channels', 'out_channels', 'start_dw_kernel_size', 'middle_dw_kernel_size', 'middle_dw_downsample', 'stride', 'expand_ratio', 'mhsa']
@@ -55,19 +61,11 @@ class MobilenetV4(nn.Module):
     self._global_pooling = nn.AdaptiveAvgPool2d(1)
 
   def __call__(self, x:Tensor) -> Tensor:
-    print(x.shape)
     x0 = self._conv0(x)
-    print(x.shape)
     x1 = self._layer1(x0)
-    print(x.shape)
     x2 = self._layer2(x1)
-    print(x.shape)
     x3 = self._layer3(x2)
-    print(x.shape)
     x4 = self._layer4(x3)
-    print(x.shape)
     x5 = self._layer5(x4)
-    print(x.shape)
     x5 = self._global_pooling(x5)
-    print(x.shape)
     return [x1, x2, x3, x4, x5]

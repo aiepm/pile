@@ -17,14 +17,14 @@ class MultiHeadAttention(nn.Module):
     self._value_proj = nn.Parameter(torch.zeros(num_heads, self._value_dim, input_channels))
     score_normalization = lambda x: x / Tensor([self._key_dim], dtype=x.type).sqrt()
     self._attention_score = lambda sim: nn.Sequential(
-        nn.Softmax(),
+        nn.Softmax(dim=-1),
         nn.Dropout(dropout_rate)
     )(score_normalization(sim))
     self._output_proj = nn.Parameter(torch.zeros(input_channels, num_heads, self._value_dim))
 
   def _reshape_input(self, t:Tensor) -> Tensor:
     num = reduce(lambda x,y:x*y, t.shape[1:-1], 1)
-    return t.view(t.shape[0], num, t.shape[-1])
+    return t.reshape(t.shape[0], num, t.shape[-1])
 
   def forward(self, x:Tensor) -> Tensor:
     rx = self._reshape_input(x)
@@ -65,48 +65,40 @@ class MHSA(nn.Module):
       **kwargs,
   ):
     super().__init__()
-    self._key_dim = key_dim
-    self._value_dim = value_dim
-    self._use_multi_query = use_multi_query
-    self._query_w_strides = query_w_strides
-    self._downsampling_dw_kernel_size = downsampling_dw_kernel_size
-    self._use_bias = use_bias
     self._use_residual = use_residual
-    self._use_layer_scale = use_layer_scale
-    self._layer_scale_init_value = layer_scale_init_value
     self._output_intermediate_endpoints = output_intermediate_endpoints
 
     self._input_norm = nn.BatchNorm2d(input_dim, eps=norm_epsilon, momentum=norm_momentum)
 
     self._cpe_dw_conv = (lambda x: nn.Conv2d(input_dim, input_dim, kernel_size=cpe_dw_kernel_size, groups=input_dim)(x) + x) if use_cpe else nn.Identity()
 
-    num_heads = input_dim // self._key_dim if num_heads is None else num_heads
+    num_heads = input_dim // key_dim if num_heads is None else num_heads
 
-    self._attention = MultiHeadAttention(input_dim, num_heads, self._key_dim, self._value_dim, dropout)
-    if self._use_multi_query:
-      if query_h_strides > 1 or self._query_w_strides > 1 or kv_strides > 1:
+    self._attention = MultiHeadAttention(input_dim, num_heads, key_dim, value_dim, dropout)
+    if use_multi_query:
+      if query_h_strides > 1 or query_w_strides > 1 or kv_strides > 1:
         self._attention = MQAWithDownsampling(
             input_channels=input_dim,
             num_heads=num_heads,
-            key_dim=self._key_dim,
-            value_dim=self._value_dim,
+            key_dim=key_dim,
+            value_dim=value_dim,
             query_h_strides=query_h_strides,
-            query_w_strides=self._query_w_strides,
+            query_w_strides=query_w_strides,
             kv_strides=kv_strides,
-            dw_kernel_size=self._downsampling_dw_kernel_size,
+            dw_kernel_size=downsampling_dw_kernel_size,
             dropout=dropout,
         )
       else:
         self._attention = MultiQueryAttentionLayerV2(
             input_channels=input_dim,
             num_heads=num_heads,
-            key_dim=self._key_dim,
-            value_dim=self._value_dim,
+            key_dim=key_dim,
+            value_dim=value_dim,
             dropout=dropout,
         )
 
-    self._layer_scale = MNV4LayerScale(self._layer_scale_init_value, input_dim) if self._use_layer_scale else nn.Identity()
-    self._stochastic_depth = lambda x: stochastic_depth(x, stochastic_depth_drop_rate, "row", self.training) if stochastic_depth_drop_rate else nn.Identity()
+    self._layer_scale = MNV4LayerScale(layer_scale_init_value, input_dim) if use_layer_scale else nn.Identity()
+    self._stochastic_depth = (lambda x: stochastic_depth(x, stochastic_depth_drop_rate, "row", self.training)) if stochastic_depth_drop_rate else nn.Identity()
 
   def forward(self, x:Tensor) -> Tensor:
     cpe_outputs = self._cpe_dw_conv(x)
