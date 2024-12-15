@@ -1,5 +1,6 @@
 from torch import Tensor, nn
-from pile.blocks.mhsa import MHSA
+from typing import List
+from pile.blocks import MHSA
 from pile.blocks.universal_inverted_bottleneck import UniversalInvertedBottleneck
 from pile.blocks.inverted_residual import InvertedResidual
 from .specs import MODEL_SPECS
@@ -46,6 +47,77 @@ def build_blocks(layer_spec):
   else:
     raise NotImplementedError
   return layers
+
+
+class MobilenetV4ConvLarge(nn.Module):
+  def __init__(self):
+    super().__init__()
+    self._block0 = convbn(in_channels=3, out_channels=24, kernel_size=3, stride=2)
+    
+    self._block1 = InvertedResidual(in_channels=24, out_channels=48, stride=2, expand_ratio=4.0, activation=True)
+    
+    self._block2 = nn.Sequential(
+        UniversalInvertedBottleneck(in_channels=48, out_channels=96, start_dw_kernel_size=3, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=2, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=96, out_channels=96, start_dw_kernel_size=3, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+    )
+
+    self._block3 = nn.Sequential(
+        UniversalInvertedBottleneck(in_channels=96, out_channels=192, start_dw_kernel_size=3, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=2, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=3, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=3, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=3, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=3, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=5, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=5, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=5, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=5, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=5, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=192, out_channels=192, start_dw_kernel_size=3, middle_dw_kernel_size=0, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+    )
+
+    self._block4 = nn.Sequential(
+        UniversalInvertedBottleneck(in_channels=192, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=2, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=0, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=0, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=0, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+
+
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=3, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=5, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=0, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=0, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+        UniversalInvertedBottleneck(in_channels=512, out_channels=512, start_dw_kernel_size=5, middle_dw_kernel_size=0, middle_dw_downsample=True, stride=1, expand_ratio=4.0),
+    )
+
+    self._block5 = nn.Sequential(
+        convbn(in_channels=512, out_channels=960, kernel_size=1, stride=1),
+        convbn(in_channels=960, out_channels=1280, kernel_size=1, stride=1),
+        nn.AdaptiveAvgPool2d(1)
+    )
+
+  def forward(self, x:Tensor) -> List[Tensor]:
+    x0 = self._block0(x)
+    x1 = self._block1(x0)
+    x2 = self._block2(x1)
+    x3 = self._block3(x2)
+    x4 = self._block4(x3)
+    x5 = self._block5(x4)
+    return [x1, x2, x3, x4, x5]
+
 
 class MobilenetV4(nn.Module):
   def __init__(self, sspec):

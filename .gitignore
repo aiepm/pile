@@ -163,3 +163,6 @@ cython_debug/
 
 # torch datasets
 data/
+
+# torch profiling
+log/
