@@ -2,6 +2,7 @@ torch
 torchvision
 tqdm
 numpy
-pillow
+opencv
+albumentations
 pytest
 PyYAML

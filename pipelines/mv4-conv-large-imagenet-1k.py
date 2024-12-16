@@ -1,7 +1,8 @@
+import albumentations as A
 import os
 import torch
-import torchvision.transforms.v2 as transforms
 
+from albumentations.pytorch import ToTensorV2
 from pile.datasets.imagenet import ImageNet1KDataset
 from torch import nn
 from torch.utils.data import DataLoader
@@ -12,12 +13,10 @@ from pile.schedulers import WarmupCosineScheduler
 from torch import optim, Tensor
 from pile.util import get_current_lr
 
-BATCH_SIZE = 256
+BATCH_SIZE = 512
 NUM_EPOCHS = 5
 DEVICE_NAME = 'cuda:0'
 METRICS_UPDATE_STEP = 1
-NUM_STEPS = 1
-WARMUP_STEPS = 1
 
 class TModel(nn.Module):
   def __init__(self, backbone, dropout=0.2):
@@ -45,22 +44,19 @@ def get_imagenet_dataloaders(data_dir, batch_size=32, num_workers=4):
   imagenet_mean = [0.485, 0.456, 0.406]
   imagenet_std = [0.229, 0.224, 0.225]
 
-  train_transforms = transforms.Compose([
-    transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
-    transforms.Resize(256),
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToImage(),
-    transforms.ToDtype(torch.float32, scale=True),
-    transforms.Normalize(mean=imagenet_mean, std=imagenet_std),
+  train_transforms = A.Compose([
+    A.Resize(256, 256),  # Resize the image
+    A.HorizontalFlip(p=0.5),  # Random horizontal flip
+    A.RandomCrop(224, 224),
+    A.Normalize(mean=imagenet_mean, std=imagenet_std),  # Normalize to match ImageNet stats
+    ToTensorV2(),  # Convert to PyTorch tensor
   ])
 
-  val_transforms = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToImage(),
-    transforms.ToDtype(torch.float32, scale=True),
-    transforms.Normalize(mean=imagenet_mean, std=imagenet_std),
+  val_transforms = A.Compose([
+    A.Resize(256, 256),
+    A.CenterCrop(224, 224),
+    A.Normalize(mean=imagenet_mean, std=imagenet_std),
+    ToTensorV2()
   ])
 
   # Create datasets
@@ -80,7 +76,7 @@ def get_imagenet_dataloaders(data_dir, batch_size=32, num_workers=4):
     shuffle=True,
     num_workers=num_workers,
     pin_memory=True,
-    persistent_workers=True,
+    #persistent_workers=True,
     prefetch_factor=4
   )
   val_loader = DataLoader(
@@ -138,7 +134,6 @@ def main():
     num_workers=8
   )
 
-  global NUM_STEPS, WARMUP_STEPS
   NUM_STEPS = len(train_loader) * NUM_EPOCHS
   WARMUP_STEPS = NUM_STEPS // 100
 

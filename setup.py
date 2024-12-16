@@ -8,7 +8,7 @@ setup(
         "torch",
         "torchvision",
         "numpy",
-        "pillow",
+        "albumentations",
         "PyYAML",
     ],
     #entry_points={

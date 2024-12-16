@@ -1,6 +1,6 @@
+import cv2
 import os
 from torch.utils.data import Dataset
-from PIL import Image
 
 
 class ImageNet1KDataset(Dataset):
@@ -32,11 +32,12 @@ class ImageNet1KDataset(Dataset):
     label = self.labels[idx]
 
     # Load image
-    image = Image.open(img_path).convert("RGB")
+    image = cv2.imread(img_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     # Apply transformations
     if self.transform:
-      image = self.transform(image)
+      image = self.transform(image=image)['image']
 
     return image, label
 
