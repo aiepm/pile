@@ -49,6 +49,44 @@ def build_blocks(layer_spec):
   return layers
 
 
+class CustomSmall(nn.Module):
+  def __init__(self):
+    super().__init__()
+    self._block0 = convbn(in_channels=3, out_channels=32, kernel_size=3, stride=2)
+    self._block1 = InvertedResidual(in_channels=32, out_channels=64, kernel_size=3, stride=2, expand_ratio=4.0, activation=True)
+    self._block2 = InvertedResidual(in_channels=64, out_channels=128, kernel_size=3, stride=2, expand_ratio=4.0, activation=True)
+    self._block3 = InvertedResidual(in_channels=128, out_channels=256, kernel_size=3, stride=1, expand_ratio=4.0, activation=True)
+    self._block4 = InvertedResidual(in_channels=256, out_channels=256, kernel_size=5, stride=1, expand_ratio=4.0, activation=True)
+    self._block5 = InvertedResidual(in_channels=256, out_channels=256, kernel_size=3, stride=1, expand_ratio=4.0, activation=True, squeeze_excite=True)
+    self._block6 = InvertedResidual(in_channels=256, out_channels=256, kernel_size=5, stride=1, expand_ratio=4.0, activation=True, squeeze_excite=True)
+    self._block7 = InvertedResidual(in_channels=256, out_channels=512, kernel_size=3, stride=2, expand_ratio=4.0, activation=True)
+    self._block8 = InvertedResidual(in_channels=512, out_channels=512, kernel_size=3, stride=1, expand_ratio=4.0, activation=True, squeeze_excite=True)
+    self._block9 = InvertedResidual(in_channels=512, out_channels=512, kernel_size=5, stride=1, expand_ratio=4.0, activation=True, squeeze_excite=True)
+
+    self._block10 = nn.Sequential(
+        convbn(in_channels=512, out_channels=960, kernel_size=1, stride=1),
+        convbn(in_channels=960, out_channels=1280, kernel_size=1, stride=1),
+        nn.AdaptiveAvgPool2d(1)
+    )
+
+    self._global_pooling = nn.AdaptiveAvgPool2d(1)
+
+  def forward(self, x:Tensor) -> Tensor:
+    x0 = self._block0(x)
+    x1 = self._block1(x0)
+    x2 = self._block2(x1)
+    x3 = self._block3(x2)
+    x4 = self._block4(x3)
+    x5 = self._block5(x4)
+    x6 = self._block6(x5)
+    x7 = self._block7(x6)
+    x8 = self._block8(x7)
+    x9 = self._block9(x8)
+    x10 = self._block10(x9)
+    x10 = self._global_pooling(x10)
+    return x10
+
+
 class MobilenetV4ConvLarge(nn.Module):
   def __init__(self):
     super().__init__()

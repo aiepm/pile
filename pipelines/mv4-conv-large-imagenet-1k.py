@@ -8,13 +8,14 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from pile.models.mobilenet_v4 import MobilenetV4ConvLarge
+from pile.models.mobilenet_v4 import CustomSmall
 from pile.schedulers import WarmupCosineScheduler
 from torch import optim, Tensor
 from pile.util import get_current_lr
 
-BATCH_SIZE = 512
-NUM_EPOCHS = 5
+BATCH_SIZE = 256
+NUM_WORKERS = 16
+NUM_EPOCHS = 36
 DEVICE_NAME = 'cuda:0'
 METRICS_UPDATE_STEP = 1
 
@@ -34,7 +35,7 @@ class TModel(nn.Module):
     )
 
   def forward(self, x: Tensor) -> Tensor:
-    x = self.backbone(x)[-1]
+    x = self.backbone(x)
     x = x.view(x.shape[0], -1)
     x = self.classifier_head(x)
     return x
@@ -45,11 +46,16 @@ def get_imagenet_dataloaders(data_dir, batch_size=32, num_workers=4):
   imagenet_std = [0.229, 0.224, 0.225]
 
   train_transforms = A.Compose([
-    A.Resize(256, 256),  # Resize the image
-    A.HorizontalFlip(p=0.5),  # Random horizontal flip
-    A.RandomCrop(224, 224),
-    A.Normalize(mean=imagenet_mean, std=imagenet_std),  # Normalize to match ImageNet stats
-    ToTensorV2(),  # Convert to PyTorch tensor
+    A.RandomResizedCrop(height=224, width=224, 
+                        scale=(0.08, 1.0), 
+                        ratio=(0.75, 1.3333), p=1.0),
+    A.HorizontalFlip(p=0.5),
+    A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.0, rotate_limit=15,
+                       border_mode=0, value=[0,0,0], p=0.5),
+    A.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1, p=1.0),
+    A.CoarseDropout(max_holes=1, max_height=24, max_width=24, fill_value=0, p=0.5),
+    A.Normalize(mean=imagenet_mean, std=imagenet_std),
+    ToTensorV2()
   ])
 
   val_transforms = A.Compose([
@@ -76,7 +82,6 @@ def get_imagenet_dataloaders(data_dir, batch_size=32, num_workers=4):
     shuffle=True,
     num_workers=num_workers,
     pin_memory=True,
-    #persistent_workers=True,
     prefetch_factor=4
   )
   val_loader = DataLoader(
@@ -131,13 +136,13 @@ def main():
   train_loader, test_loader = get_imagenet_dataloaders(
     '/core/datasets/imagenet/target_dir/',
     batch_size=BATCH_SIZE,
-    num_workers=8
+    num_workers=NUM_WORKERS,
   )
 
   NUM_STEPS = len(train_loader) * NUM_EPOCHS
   WARMUP_STEPS = NUM_STEPS // 100
 
-  model = TModel(MobilenetV4ConvLarge(), 0.2).to(device)
+  model = TModel(CustomSmall(), 0.2).to(device)
   criterion = nn.CrossEntropyLoss()
   optimizer = optim.SGD(
     model.parameters(),
@@ -148,6 +153,9 @@ def main():
   )
   scheduler = WarmupCosineScheduler(optimizer, NUM_STEPS, WARMUP_STEPS)
 
+  #optimizer = optim.AdamW(model.parameters(), lr=4 * 1e-3)
+  #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.5, patience=len(train_loader))
+
   train_metrics = {'top1': [], 'top5': [], 'loss': []}
   test_metrics = {'top1': [], 'top5': [], 'loss': []}
 
@@ -156,6 +164,9 @@ def main():
     model.train()
     current_lr = get_current_lr(optimizer)
     running_loss = 0.0
+    running_top1_correct = 0.0
+    running_top5_correct = 0.0
+    running_samples = 0
 
     for images, labels in tqdm(train_loader, 'Train'):
       images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
@@ -172,19 +183,28 @@ def main():
       scaler.step(optimizer)
       scaler.update()
 
-      running_loss += loss.item()
+      running_loss += loss.item() * labels.size(0)
+      running_samples += labels.size(0)
+
+      # Compute training top1 and top5 on the fly
+      _, pred = outputs.topk(5, 1, True, True)
+      pred = pred.t()
+      correct = pred.eq(labels.view(1, -1).expand_as(pred))
+      running_top1_correct += correct[:1].float().sum().item()
+      running_top5_correct += correct[:5].float().sum().item()
 
       scheduler.step()
 
-    avg_train_loss = running_loss / len(train_loader)
+    avg_train_loss = running_loss / running_samples
+    train_top1 = (running_top1_correct / running_samples) * 100.0
+    train_top5 = (running_top5_correct / running_samples) * 100.0
 
     # Evaluate on test set every METRICS_UPDATE_STEP
     if epoch % METRICS_UPDATE_STEP == 0:
       avg_test_loss, test_top1, test_top5 = validate(model, test_loader, device, criterion)
-      avg_train_loss_eval, train_top1, train_top5 = validate(model, train_loader, device, criterion)
 
       # Record metrics
-      train_metrics['loss'].append(avg_train_loss_eval)
+      train_metrics['loss'].append(avg_train_loss)
       train_metrics['top1'].append(train_top1)
       train_metrics['top5'].append(train_top5)
 
@@ -194,10 +214,13 @@ def main():
     else:
       # If not evaluating this epoch, reuse last metrics for printing
       avg_test_loss = test_metrics['loss'][-1] if len(test_metrics['loss']) > 0 else 0.0
-      train_top1 = train_metrics['top1'][-1] if len(train_metrics['top1']) > 0 else 0.0
-      train_top5 = train_metrics['top5'][-1] if len(train_metrics['top5']) > 0 else 0.0
       test_top1 = test_metrics['top1'][-1] if len(test_metrics['top1']) > 0 else 0.0
       test_top5 = test_metrics['top5'][-1] if len(test_metrics['top5']) > 0 else 0.0
+
+      # Still record training metrics for consistency
+      train_metrics['loss'].append(avg_train_loss)
+      train_metrics['top1'].append(train_top1)
+      train_metrics['top5'].append(train_top5)
 
     print(
       f"Epoch [{epoch+1}/{NUM_EPOCHS}], "

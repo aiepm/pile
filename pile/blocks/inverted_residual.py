@@ -22,16 +22,16 @@ class InvertedResidual(nn.Module):
         nn.ReLU6()
     )
 
-    self._se = nn.Sequential()
+    self._se = None
     if squeeze_excite:
       s_chan = make_divisible(expanded_channels * se_ratio, 8)
-      self._se = lambda x: x.mul(nn.Sequential(
-          nn.AvgPool2d(x.shape[2:4]),
+      self._se = nn.Sequential(
+          nn.AdaptiveAvgPool2d(1),
           nn.Conv2d(expanded_channels, s_chan, kernel_size=1, bias=True),
           nn.ReLU6(),
           nn.Conv2d(s_chan, expanded_channels, kernel_size=1, bias=True),
           nn.Sigmoid()
-      )(x))
+      )
 
     self._pw = nn.Sequential(
         nn.Conv2d(expanded_channels, out_channels, kernel_size=1, bias=False),
@@ -45,7 +45,7 @@ class InvertedResidual(nn.Module):
     ox = x
     x = self._expand(x)
     x = self._dw(x)
-    x = self._se(x)
+    x = x.mul(self._se(x)) if self._se else x
     x = self._pw(x)
     x = (x + ox) if self._use_res_conn else x
     return x
