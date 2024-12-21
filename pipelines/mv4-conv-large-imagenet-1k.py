@@ -8,13 +8,13 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from pile.models.mobilenet_v4 import CustomSmall
+from pile.models.mobilenet_v4 import MobilenetV4ConvLarge
 from pile.schedulers import WarmupCosineScheduler
 from torch import optim, Tensor
 from pile.util import get_current_lr
 
 BATCH_SIZE = 256
-NUM_WORKERS = 16
+NUM_WORKERS = 12
 NUM_EPOCHS = 36
 DEVICE_NAME = 'cuda:0'
 METRICS_UPDATE_STEP = 1
@@ -35,7 +35,7 @@ class TModel(nn.Module):
     )
 
   def forward(self, x: Tensor) -> Tensor:
-    x = self.backbone(x)
+    x = self.backbone(x)[-1]
     x = x.view(x.shape[0], -1)
     x = self.classifier_head(x)
     return x
@@ -142,7 +142,7 @@ def main():
   NUM_STEPS = len(train_loader) * NUM_EPOCHS
   WARMUP_STEPS = NUM_STEPS // 100
 
-  model = TModel(CustomSmall(), 0.2).to(device)
+  model = TModel(MobilenetV4ConvLarge(), 0.2).to(device)
   criterion = nn.CrossEntropyLoss()
   optimizer = optim.SGD(
     model.parameters(),
