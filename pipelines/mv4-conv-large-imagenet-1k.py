@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from pile.models.mobilenet_v4 import MobilenetV4ConvLarge
-from pile.schedulers import WarmupCosineScheduler
+from pile.schedulers import CosineAnnealingWarmRestartsWithDecay
 from torch import optim, Tensor
 from pile.util import get_current_lr
 
@@ -149,10 +149,9 @@ def main():
     lr=0.04,
     nesterov=True,
     momentum=0.9,
-    weight_decay=1e-4,
-    fused=True,
+    weight_decay=1e-4
   )
-  scheduler = WarmupCosineScheduler(optimizer, warmup_steps=WARMUP_STEPS, T_0=EPOCH_STEPS * 4)
+  scheduler = CosineAnnealingWarmRestartsWithDecay(optimizer, warmup_steps=WARMUP_STEPS, T_0=EPOCH_STEPS * 4)
 
   #optimizer = optim.AdamW(model.parameters(), lr=8 * 1e-3, weight_decay=1e-4)
   #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.5, patience=len(train_loader))
