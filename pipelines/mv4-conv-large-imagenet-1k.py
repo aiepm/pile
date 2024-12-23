@@ -15,9 +15,9 @@ from pile.util import get_current_lr
 
 BATCH_SIZE = 256
 NUM_WORKERS = 12
-NUM_EPOCHS = 36
 DEVICE_NAME = 'cuda:0'
 METRICS_UPDATE_STEP = 1
+PATIENCE_EPOCHS = 8
 
 class TModel(nn.Module):
   def __init__(self, backbone, dropout=0.2):
@@ -139,28 +139,32 @@ def main():
     num_workers=NUM_WORKERS,
   )
 
-  NUM_STEPS = len(train_loader) * NUM_EPOCHS
-  WARMUP_STEPS = NUM_STEPS // 100
+  EPOCH_STEPS = len(train_loader)
+  WARMUP_STEPS = EPOCH_STEPS
 
   model = TModel(MobilenetV4ConvLarge(), 0.2).to(device)
   criterion = nn.CrossEntropyLoss()
   optimizer = optim.SGD(
     model.parameters(),
-    lr=0.08,
+    lr=0.04,
     nesterov=True,
     momentum=0.9,
-    weight_decay=1e-4
+    weight_decay=1e-4,
+    fused=True,
   )
-  scheduler = WarmupCosineScheduler(optimizer, NUM_STEPS, WARMUP_STEPS)
+  scheduler = WarmupCosineScheduler(optimizer, warmup_steps=WARMUP_STEPS, T_0=EPOCH_STEPS * 4)
 
-  #optimizer = optim.AdamW(model.parameters(), lr=4 * 1e-3)
+  #optimizer = optim.AdamW(model.parameters(), lr=8 * 1e-3, weight_decay=1e-4)
   #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.5, patience=len(train_loader))
 
   train_metrics = {'top1': [], 'top5': [], 'loss': []}
   test_metrics = {'top1': [], 'top5': [], 'loss': []}
 
+  last_improved = -1
+  best_test_top1 = 0.0
+
   scaler = torch.amp.GradScaler(device.type)
-  for epoch in range(NUM_EPOCHS):
+  for epoch in range(10000):
     model.train()
     current_lr = get_current_lr(optimizer)
     running_loss = 0.0
@@ -179,7 +183,7 @@ def main():
       scaler.scale(loss).backward()
       if epoch > WARMUP_STEPS:
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=4.0)
       scaler.step(optimizer)
       scaler.update()
 
@@ -199,37 +203,43 @@ def main():
     train_top1 = (running_top1_correct / running_samples) * 100.0
     train_top5 = (running_top5_correct / running_samples) * 100.0
 
+    # Record metrics
+    train_metrics['loss'].append(avg_train_loss)
+    train_metrics['top1'].append(train_top1)
+    train_metrics['top5'].append(train_top5)
+
+    # If not evaluating this epoch, reuse last metrics for printing
+    avg_test_loss = test_metrics['loss'][-1] if len(test_metrics['loss']) > 0 else 0.0
+    test_top1 = test_metrics['top1'][-1] if len(test_metrics['top1']) > 0 else 0.0
+    test_top5 = test_metrics['top5'][-1] if len(test_metrics['top5']) > 0 else 0.0
+
     # Evaluate on test set every METRICS_UPDATE_STEP
     if epoch % METRICS_UPDATE_STEP == 0:
       avg_test_loss, test_top1, test_top5 = validate(model, test_loader, device, criterion)
-
-      # Record metrics
-      train_metrics['loss'].append(avg_train_loss)
-      train_metrics['top1'].append(train_top1)
-      train_metrics['top5'].append(train_top5)
-
+      
       test_metrics['loss'].append(avg_test_loss)
       test_metrics['top1'].append(test_top1)
       test_metrics['top5'].append(test_top5)
-    else:
-      # If not evaluating this epoch, reuse last metrics for printing
-      avg_test_loss = test_metrics['loss'][-1] if len(test_metrics['loss']) > 0 else 0.0
-      test_top1 = test_metrics['top1'][-1] if len(test_metrics['top1']) > 0 else 0.0
-      test_top5 = test_metrics['top5'][-1] if len(test_metrics['top5']) > 0 else 0.0
-
-      # Still record training metrics for consistency
-      train_metrics['loss'].append(avg_train_loss)
-      train_metrics['top1'].append(train_top1)
-      train_metrics['top5'].append(train_top5)
 
     print(
-      f"Epoch [{epoch+1}/{NUM_EPOCHS}], "
+      f"Epoch [{epoch+1}], "
       f"LR: {current_lr:.6f}, "
       f"Train Loss: {avg_train_loss:.4f}, "
       f"Test Loss: {avg_test_loss:.4f}, "
       f"Train Top1: {train_top1:.2f}%, Train Top5: {train_top5:.2f}%, "
       f"Test Top1: {test_top1:.2f}%, Test Top5: {test_top5:.2f}%"
     )
+
+    if test_top1 > best_test_top1:
+      last_improved = epoch
+      best_test_top1 = test_top1
+      torch.save({
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict()
+      }, f'checkpoint_{epoch+1}.pth')
+    elif epoch - last_improved >= PATIENCE_EPOCHS:
+      break
 
   # Print best results
   best_train_top1 = max(train_metrics['top1']) if train_metrics['top1'] else 0.0
