@@ -1,6 +1,5 @@
 import math
-import torch
-from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
+from torch.optim.lr_scheduler import _LRScheduler
 
 class CosineAnnealingWarmRestartsWithDecay(_LRScheduler):
   def __init__(self, optimizer, T_0, T_mult=1, eta_min=0, factor=1.0, warmup_steps=0, last_epoch=-1):
@@ -24,6 +23,7 @@ class CosineAnnealingWarmRestartsWithDecay(_LRScheduler):
     self.cycle = 0
     self.T_i = T_0
     self.base_max_lrs = [group['lr'] for group in optimizer.param_groups]
+    self.acc = 0
     super(CosineAnnealingWarmRestartsWithDecay, self).__init__(optimizer, last_epoch)
 
   def get_lr(self):
@@ -31,15 +31,21 @@ class CosineAnnealingWarmRestartsWithDecay(_LRScheduler):
       # Linear warmup
       warmup_factor = (self.last_epoch + 1) / self.warmup_steps
       return [lr * warmup_factor for lr in self.base_max_lrs]
+
+    if self.last_epoch == self.warmup_steps:
+      self.acc += self.warmup_steps
+
     # Cosine annealing with decay
-    current_epoch_in_cycle = self.last_epoch - self.warmup_steps
+    current_epoch_in_cycle = self.last_epoch - self.acc
     cycle_length = self.T_i
 
-    if current_epoch_in_cycle >= cycle_length:
+    if current_epoch_in_cycle == cycle_length:
       # Start new cycle
       self.cycle += 1
+      self.acc += self.T_i
       self.T_i = self.T_i * self.T_mult
       current_epoch_in_cycle = 0
+      cycle_length = self.T_i
       self.base_max_lrs = [lr * self.factor for lr in self.base_max_lrs]
 
     return [
@@ -62,6 +68,7 @@ class CosineAnnealingWarmRestartsWithDecay(_LRScheduler):
       'T_i': self.T_i,
       'last_epoch': self.last_epoch,
       'base_max_lrs': self.base_max_lrs,
+      'acc': self.acc
     }
 
   def load_state_dict(self, state_dict):
@@ -77,5 +84,5 @@ class CosineAnnealingWarmRestartsWithDecay(_LRScheduler):
     self.T_i = state_dict['T_i']
     self.last_epoch = state_dict['last_epoch']
     self.base_max_lrs = state_dict['base_max_lrs']
-    self._initialized_base_max_lrs = True
+    self.acc = state_dict['acc']
 

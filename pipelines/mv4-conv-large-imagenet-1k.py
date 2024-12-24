@@ -18,6 +18,8 @@ NUM_WORKERS = 12
 DEVICE_NAME = 'cuda:0'
 METRICS_UPDATE_STEP = 1
 PATIENCE_EPOCHS = 8
+CHECKPOINT_PATH = None
+IMAGENET_DIR = '/core/datasets/imagenet/target_dir/'
 
 class TModel(nn.Module):
   def __init__(self, backbone, dropout=0.2):
@@ -41,7 +43,6 @@ class TModel(nn.Module):
     return x
 
 def get_imagenet_dataloaders(data_dir, batch_size=32, num_workers=4):
-  # Define transforms
   imagenet_mean = [0.485, 0.456, 0.406]
   imagenet_std = [0.229, 0.224, 0.225]
 
@@ -65,7 +66,6 @@ def get_imagenet_dataloaders(data_dir, batch_size=32, num_workers=4):
     ToTensorV2()
   ])
 
-  # Create datasets
   train_dataset = ImageNet1KDataset(
     root_dir=os.path.join(data_dir, 'train'),
     transform=train_transforms
@@ -75,7 +75,6 @@ def get_imagenet_dataloaders(data_dir, batch_size=32, num_workers=4):
     transform=val_transforms
   )
 
-  # Create dataloaders
   train_loader = DataLoader(
     train_dataset,
     batch_size=batch_size,
@@ -113,14 +112,11 @@ def validate(model, dataloader, device, criterion):
     total_loss += loss.item() * batch_size
     total_samples += batch_size
 
-    # Calculate top-1 and top-5 accuracies
     _, pred = outputs.topk(5, 1, True, True)
     pred = pred.t()
     correct = pred.eq(labels.view(1, -1).expand_as(pred))
 
-    # top-1
     top1_correct += correct[:1].float().sum()
-    # top-5
     top5_correct += correct[:5].float().sum()
 
   avg_loss = total_loss / total_samples
@@ -129,12 +125,10 @@ def validate(model, dataloader, device, criterion):
   return avg_loss, top1_acc.item(), top5_acc.item()
 
 def main():
-  # Check if GPU is available
   device = torch.device(DEVICE_NAME if torch.cuda.is_available() else 'cpu')
-  print(device)
 
   train_loader, test_loader = get_imagenet_dataloaders(
-    '/core/datasets/imagenet/target_dir/',
+    IMAGENET_DIR,
     batch_size=BATCH_SIZE,
     num_workers=NUM_WORKERS,
   )
@@ -142,7 +136,7 @@ def main():
   EPOCH_STEPS = len(train_loader)
   WARMUP_STEPS = EPOCH_STEPS
 
-  model = TModel(MobilenetV4ConvLarge(), 0.2).to(device)
+  model = TModel(MobilenetV4ConvLarge(), 0.2)
   criterion = nn.CrossEntropyLoss()
   optimizer = optim.SGD(
     model.parameters(),
@@ -151,11 +145,16 @@ def main():
     momentum=0.9,
     weight_decay=1e-4
   )
-  scheduler = CosineAnnealingWarmRestartsWithDecay(optimizer, warmup_steps=WARMUP_STEPS, T_0=EPOCH_STEPS * 4)
+  scheduler = CosineAnnealingWarmRestartsWithDecay(optimizer, warmup_steps=WARMUP_STEPS, T_0=EPOCH_STEPS * 4, T_mult=2.0, factor=0.5)
 
-  #optimizer = optim.AdamW(model.parameters(), lr=8 * 1e-3, weight_decay=1e-4)
-  #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.5, patience=len(train_loader))
-
+  if CHECKPOINT_PATH:
+    checkpoint = torch.load(CHECKPOINT_PATH)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+   
+  model = model.to(device)
+    
   train_metrics = {'top1': [], 'top5': [], 'loss': []}
   test_metrics = {'top1': [], 'top5': [], 'loss': []}
 
@@ -207,12 +206,10 @@ def main():
     train_metrics['top1'].append(train_top1)
     train_metrics['top5'].append(train_top5)
 
-    # If not evaluating this epoch, reuse last metrics for printing
     avg_test_loss = test_metrics['loss'][-1] if len(test_metrics['loss']) > 0 else 0.0
     test_top1 = test_metrics['top1'][-1] if len(test_metrics['top1']) > 0 else 0.0
     test_top5 = test_metrics['top5'][-1] if len(test_metrics['top5']) > 0 else 0.0
 
-    # Evaluate on test set every METRICS_UPDATE_STEP
     if epoch % METRICS_UPDATE_STEP == 0:
       avg_test_loss, test_top1, test_top5 = validate(model, test_loader, device, criterion)
       
@@ -240,7 +237,6 @@ def main():
     elif epoch - last_improved >= PATIENCE_EPOCHS:
       break
 
-  # Print best results
   best_train_top1 = max(train_metrics['top1']) if train_metrics['top1'] else 0.0
   best_test_top1 = max(test_metrics['top1']) if test_metrics['top1'] else 0.0
   print('Best train top1 accuracy: ', best_train_top1)
