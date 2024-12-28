@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from pile.models.mobilenet_v4 import MobilenetV4ConvLarge
-from pile.schedulers import CosineAnnealingWarmRestartsWithDecay
 from torch import optim, Tensor
 from pile.util import get_current_lr
 
@@ -137,23 +136,25 @@ def main():
   WARMUP_STEPS = EPOCH_STEPS
 
   model = TModel(MobilenetV4ConvLarge(), 0.2)
+  model = model.to(device)
   criterion = nn.CrossEntropyLoss()
-  optimizer = optim.SGD(
-    model.parameters(),
-    lr=0.04,
-    nesterov=True,
-    momentum=0.9,
-    weight_decay=1e-4
-  )
-  scheduler = CosineAnnealingWarmRestartsWithDecay(optimizer, warmup_steps=WARMUP_STEPS, T_0=EPOCH_STEPS * 4, T_mult=2.0, factor=0.5)
+  #optimizer = optim.SGD(
+  #  model.parameters(),
+  #  lr=0.04,
+  #  nesterov=True,
+  #  momentum=0.9,
+  #  weight_decay=1e-4
+  #)
+  #scheduler = CosineAnnealingWarmRestartsWithDecay(optimizer, warmup_steps=WARMUP_STEPS, T_0=EPOCH_STEPS * 4, T_mult=2.0, factor=0.5)
+
+  optimizer = optim.AdamW(model.parameters())
+  scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2, min_lr=1e-6)
 
   if CHECKPOINT_PATH:
     checkpoint = torch.load(CHECKPOINT_PATH)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-   
-  model = model.to(device)
     
   train_metrics = {'top1': [], 'top5': [], 'loss': []}
   test_metrics = {'top1': [], 'top5': [], 'loss': []}
@@ -162,6 +163,7 @@ def main():
   best_test_top1 = 0.0
 
   scaler = torch.amp.GradScaler(device.type)
+  step = 0
   for epoch in range(10000):
     model.train()
     current_lr = get_current_lr(optimizer)
@@ -179,9 +181,9 @@ def main():
 
       optimizer.zero_grad()
       scaler.scale(loss).backward()
-      if epoch > WARMUP_STEPS:
+      if step >= WARMUP_STEPS:
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=4.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
       scaler.step(optimizer)
       scaler.update()
 
@@ -195,7 +197,7 @@ def main():
       running_top1_correct += correct[:1].float().sum().item()
       running_top5_correct += correct[:5].float().sum().item()
 
-      scheduler.step()
+      step += 1
 
     avg_train_loss = running_loss / running_samples
     train_top1 = (running_top1_correct / running_samples) * 100.0
@@ -217,6 +219,8 @@ def main():
       test_metrics['top1'].append(test_top1)
       test_metrics['top5'].append(test_top5)
 
+      scheduler.step(test_top1)
+
     print(
       f"Epoch [{epoch+1}], "
       f"LR: {current_lr:.6f}, "
@@ -232,7 +236,8 @@ def main():
       torch.save({
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict()
+        'scheduler_state_dict': scheduler.state_dict(),
+        'start_epoch': last_improved,
       }, f'checkpoint_{epoch+1}.pth')
     elif epoch - last_improved >= PATIENCE_EPOCHS:
       break
